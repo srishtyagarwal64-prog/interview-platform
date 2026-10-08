@@ -1,18 +1,19 @@
-import fs from "fs"
+import fs from "fs";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { askAi } from "../services/openrouterservice.js";
- import User from "../auth/authmodel.js"; 
- import Interview from "./Interviewmodel.js";
+import User from "../auth/authmodel.js";
+import Interview from "./Interviewmodel.js";
 
 export const analyzeResume = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: "Resume required" });
     }
-    const filepath = req.file.path
 
-    const fileBuffer = await fs.promises.readFile(filepath)
-    const uint8Array = new Uint8Array(fileBuffer)
+    const filepath = req.file.path;
+
+    const fileBuffer = await fs.promises.readFile(filepath);
+    const uint8Array = new Uint8Array(fileBuffer);
 
     const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise;
 
@@ -26,7 +27,6 @@ export const analyzeResume = async (req, res) => {
       const pageText = content.items.map(item => item.str).join(" ");
       resumeText += pageText + "\n";
     }
-
 
     resumeText = resumeText
       .replace(/\s+/g, " ")
@@ -54,13 +54,11 @@ Return strictly JSON:
       }
     ];
 
-
-    const aiResponse = await askAi(messages)
+    const aiResponse = await askAi(messages);
 
     const parsed = JSON.parse(aiResponse);
 
-    fs.unlinkSync(filepath)
-
+    fs.unlinkSync(filepath);
 
     res.json({
       role: parsed.role,
@@ -84,17 +82,19 @@ Return strictly JSON:
 
 export const generateQuestion = async (req, res) => {
   try {
-    let { role, experience, mode, resumeText, projects, skills } = req.body
+    let { role, experience, mode, resumeText, projects, skills } = req.body;
 
     role = role?.trim();
     experience = experience?.trim();
     mode = mode?.trim();
 
     if (!role || !experience || !mode) {
-      return res.status(400).json({ message: "Role, Experience and Mode are required." })
+      return res.status(400).json({
+        message: "Role, Experience and Mode are required."
+      });
     }
 
-    const user = await User.findById(req.user.id)
+    const user = await User.findById(req.user.id);
 
     if (!user) {
       return res.status(404).json({
@@ -119,19 +119,140 @@ export const generateQuestion = async (req, res) => {
     const safeResume = resumeText?.trim() || "None";
 
     const userPrompt = `
-    Role:${role}
-    Experience:${experience}
-    InterviewMode:${mode}
-    Projects:${projectText}
-    Skills:${skillsText},
-    Resume:${safeResume}
-    `;
+Role: ${role}
+Experience: ${experience}
+InterviewMode: ${mode}
+Projects: ${projectText}
+Skills: ${skillsText}
+Resume: ${safeResume}
+`;
 
     if (!userPrompt.trim()) {
       return res.status(400).json({
         message: "Prompt content is empty."
       });
     }
+
+
+    // ------------------------------------------
+    // MODE-SPECIFIC INTERVIEW INSTRUCTIONS
+    // ------------------------------------------
+
+    let modeInstructions = "";
+
+    if (mode.toLowerCase() === "hr") {
+
+      modeInstructions = `
+INTERVIEW MODE: HR
+
+Generate ONLY HR and behavioral interview questions.
+
+Focus on:
+- Introduction
+- Motivation
+- Career goals
+- Strengths and weaknesses
+- Communication
+- Teamwork
+- Leadership
+- Conflict resolution
+- Handling pressure
+- Problem-solving from a behavioral perspective
+- Work experience
+- Internship experience
+- Workplace situations
+- Learning experiences
+
+STRICTLY DO NOT ask technical questions.
+
+DO NOT ask about:
+- Coding
+- Programming languages
+- React
+- Node.js
+- JavaScript
+- Databases
+- MongoDB
+- SQL
+- APIs
+- Git
+- Docker
+- Cloud
+- System design
+- Algorithms
+- Data structures
+- Testing
+- Performance optimization
+- Technical implementation
+- How an application was built
+- How a technical feature was implemented
+
+Even if technical skills or projects are present in the resume,
+ask about them ONLY from a behavioral perspective.
+
+GOOD HR QUESTION:
+"Tell me about a challenge you faced while working on your project and how you handled it."
+
+BAD HR QUESTION:
+"How did you ensure the performance and functionality of the application?"
+`;
+    }
+
+    else if (mode.toLowerCase() === "technical") {
+
+      modeInstructions = `
+INTERVIEW MODE: TECHNICAL
+
+Generate ONLY technical interview questions.
+
+Focus on:
+- Programming
+- Programming languages
+- Frameworks
+- Databases
+- APIs
+- Backend
+- Frontend
+- Authentication
+- Architecture
+- Algorithms
+- Data structures
+- Debugging
+- Testing
+- Performance
+- Deployment
+- Cloud
+- Technical decisions
+- Projects and technical implementation
+
+Questions should be relevant to the candidate's role, skills,
+projects and resume.
+
+DO NOT generate HR or behavioral questions.
+`;
+    }
+
+    else if (mode.toLowerCase() === "mixed") {
+
+      modeInstructions = `
+INTERVIEW MODE: MIXED
+
+Generate a balanced combination of HR/behavioral and technical questions.
+
+Include both:
+- HR/behavioral questions
+- Technical questions
+
+Questions should be relevant to the candidate's role,
+experience, skills, projects and resume.
+
+Do not make all questions technical.
+Do not make all questions HR.
+
+The interview should contain a realistic mixture of both types.
+`;
+    }
+
 
     const messages = [
 
@@ -144,7 +265,10 @@ Speak in simple, natural English as if you are directly talking to the candidate
 
 Generate exactly 5 interview questions.
 
-Strict Rules:
+${modeInstructions}
+
+GENERAL RULES:
+
 - Each question must contain between 15 and 25 words.
 - Each question must be a single complete sentence.
 - Do NOT number them.
@@ -155,16 +279,21 @@ Strict Rules:
 - Questions must feel practical and realistic.
 
 Difficulty progression:
-Question 1 → easy  
-Question 2 → easy  
-Question 3 → medium  
-Question 4 → medium  
-Question 5 → hard  
+Question 1 → easy
+Question 2 → easy
+Question 3 → medium
+Question 4 → medium
+Question 5 → hard
 
-Make questions based on the candidate’s role, experience,interviewMode, projects, skills, and resume details.
+Make questions based on the candidate's role, experience,
+projects, skills, and resume details.
+
+IMPORTANT:
+The selected interview mode has the highest priority.
+Never violate the rules of the selected interview mode.
 `
-      }
-      ,
+      },
+
       {
         role: "user",
         content: userPrompt
@@ -172,31 +301,36 @@ Make questions based on the candidate’s role, experience,interviewMode, projec
     ];
 
 
-    const aiResponse = await askAi(messages)
+    const aiResponse = await askAi(messages);
 
     if (!aiResponse || !aiResponse.trim()) {
-           
+
       return res.status(500).json({
         message: "AI returned empty response."
       });
 
     }
 
+
+    // KEEPING YOUR ORIGINAL CODE EXACTLY SAME
     const questionsArray = aiResponse
       .split("\n")
       .map(q => q.trim())
       .filter(q => q.length > 0)
       .slice(0, 5);
 
+
     if (questionsArray.length === 0) {
-      
+
       return res.status(500).json({
         message: "AI failed to generate questions."
       });
     }
 
+
     user.credits -= 50;
     await user.save();
+
 
     const interview = await Interview.create({
       userId: user._id,
@@ -209,7 +343,8 @@ Make questions based on the candidate’s role, experience,interviewMode, projec
         difficulty: ["easy", "easy", "medium", "medium", "hard"][index],
         timeLimit: [60, 60, 90, 90, 120][index],
       }))
-    })
+    });
+
 
     res.json({
       interviewId: interview._id,
@@ -217,18 +352,21 @@ Make questions based on the candidate’s role, experience,interviewMode, projec
       userName: user.name,
       questions: interview.questions
     });
+
   } catch (error) {
-    return res.status(500).json({message:`failed to create interview ${error}`})
+    return res.status(500).json({
+      message: `failed to create interview ${error}`
+    });
   }
-}
+};
 
 
 export const submitAnswer = async (req, res) => {
   try {
-    const { interviewId, questionIndex, answer, timeTaken } = req.body
+    const { interviewId, questionIndex, answer, timeTaken } = req.body;
 
-    const interview = await Interview.findById(interviewId)
-    const question = interview.questions[questionIndex]
+    const interview = await Interview.findById(interviewId);
+    const question = interview.questions[questionIndex];
 
     // If no answer
     if (!answer) {
@@ -300,8 +438,7 @@ Return ONLY valid JSON in this format:
   "feedback": "short human feedback"
 }
 `
-      }
-      ,
+      },
       {
         role: "user",
         content: `
@@ -312,8 +449,7 @@ Answer: ${answer}
     ];
 
 
-    const aiResponse = await askAi(messages)
-
+    const aiResponse = await askAi(messages);
 
     const parsed = JSON.parse(aiResponse);
 
@@ -323,23 +459,31 @@ Answer: ${answer}
     question.correctness = parsed.correctness;
     question.score = parsed.finalScore;
     question.feedback = parsed.feedback;
+
     await interview.save();
 
+    return res.status(200).json({
+      feedback: parsed.feedback
+    });
 
-    return res.status(200).json({feedback :parsed.feedback})
   } catch (error) {
-    return res.status(500).json({message:`failed to submit answer ${error}`})
-
+    return res.status(500).json({
+      message: `failed to submit answer ${error}`
+    });
   }
-}
+};
 
 
-export const finishInterview = async (req,res) => {
+export const finishInterview = async (req, res) => {
   try {
-    const {interviewId} = req.body
-    const interview = await Interview.findById(interviewId)
-    if(!interview){
-      return res.status(400).json({message:"failed to find Interview"})
+    const { interviewId } = req.body;
+
+    const interview = await Interview.findById(interviewId);
+
+    if (!interview) {
+      return res.status(400).json({
+        message: "failed to find Interview"
+      });
     }
 
     const totalQuestions = interview.questions.length;
@@ -378,7 +522,7 @@ export const finishInterview = async (req,res) => {
     await interview.save();
 
     return res.status(200).json({
-       finalScore: Number(finalScore.toFixed(1)),
+      finalScore: Number(finalScore.toFixed(1)),
       confidence: Number(avgConfidence.toFixed(1)),
       communication: Number(avgCommunication.toFixed(1)),
       correctness: Number(avgCorrectness.toFixed(1)),
@@ -390,28 +534,34 @@ export const finishInterview = async (req,res) => {
         communication: q.communication || 0,
         correctness: q.correctness || 0,
       })),
-    })
+    });
+
   } catch (error) {
-    return res.status(500).json({message:`failed to finish Interview ${error}`})
+    return res.status(500).json({
+      message: `failed to finish Interview ${error}`
+    });
   }
-}
+};
 
 
-export const getMyInterviews = async (req,res) => {
+export const getMyInterviews = async (req, res) => {
   try {
-    const interviews = await Interview.find({userId:req.user.id})
-    .sort({ createdAt: -1 })
-    .select("role experience mode finalScore status createdAt");
+    const interviews = await Interview.find({ userId: req.user.id })
+      .sort({ createdAt: -1 })
+      .select("role experience mode finalScore status createdAt");
 
     return res.status(200).json({
-       success: true,
+      success: true,
       data: interviews
-    })
+    });
 
   } catch (error) {
-     return res.status(500).json({message:`failed to find currentUser Interview ${error}`})
+    return res.status(500).json({
+      message: `failed to find currentUser Interview ${error}`
+    });
   }
-}
+};
+
 
 export const getInterviewReport = async (req, res) => {
   try {
