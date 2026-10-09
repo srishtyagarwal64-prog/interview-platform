@@ -4,7 +4,7 @@ An AI-powered interview preparation platform that helps candidates practice inte
 
 ## 🚀 Live Demo
 
-**Live Website:** [Add Your Deployed Website URL Here]
+**Live Website:** http://16.176.76.4:5173/
 
 ## ✨ Features
 
